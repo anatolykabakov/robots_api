@@ -14,6 +14,11 @@ set_command = 'v'
 print_command = 'd'
 start_connect = 's'
 
+#robot parameters
+MAX_SPEED = 0.3#m/s
+WHEELS_DIST = 0.275
+WHEELS_RAD  = 0.0675
+
 class hcr():
     def __init__(self, ARDUINO_PORT='/dev/ttyACM0', LIDAR_PORT='/dev/ttyUSB0'):
         self.connect = self.openconnect(ARDUINO_PORT, ARDUINO_SPEED)
@@ -76,14 +81,13 @@ class hcr():
  
     def setMotors(self, rightVelocity, leftVelocity):
         self.send(rightVelocity, leftVelocity)
-        #print('2')
-        #self.check_connect(self.connect)
 
-    def getScan(self):
+    def getScanRanges(self):
         #get laser dara
         # Extract (quality, angle, distance) triples from current scan
-        scan = [[item[1], item[2]] for item in next(self.iterator)]
-        return scan
+        #scan = [[item[1], item[2]] for item in next(self.iterator)]
+        ranges = [item[2]/1000 for item in next(self.iterator)]
+        return ranges
     
 
 
