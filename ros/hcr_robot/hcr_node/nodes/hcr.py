@@ -20,8 +20,7 @@ from hcr_driver.hcr_driver import hcr, WHEELS_DIST, WHEELS_RAD, MAX_SPEED
 ARDUINO_PORT = '/dev/ttyACM0'
 ARDUINO_SPEED = 115200
 
-#RPLidar serial port
-LIDAR_PORT = '/dev/ttyUSB0'
+
 
 class HCRNode:
 
@@ -32,10 +31,9 @@ class HCRNode:
         self.port = rospy.get_param('~port', ARDUINO_PORT)
         rospy.loginfo("Using port: %s"%(self.port))
 
-        self.robot = hcr(self.port, LIDAR_PORT)
+        self.robot = hcr(self.port)
 
         rospy.Subscriber("cmd_vel", Twist, self.cmdVelCb)
-        self.scanPub = rospy.Publisher('base_scan', LaserScan, queue_size=10)
         self.odomPub = rospy.Publisher('odom', Odometry, queue_size=10)
         self.odomBroadcaster = TransformBroadcaster()
 
@@ -49,25 +47,14 @@ class HCRNode:
         self.th = 0
         then = rospy.Time.now()
 
-        # things that don't ever change
-        scan_link = rospy.get_param('~frame_id','base_laser_link')
-        scan = LaserScan(header=rospy.Header(frame_id=scan_link)) 
-        scan.angle_min = 0
-        scan.angle_max = 6.26
-        scan.angle_increment = 0.017437326
-        scan.range_min = 0.020
-        scan.range_max = 5.0
+
         odom = Odometry(header=rospy.Header(frame_id="odom"), child_frame_id='base_link')
     
         # main loop of driver
         r = rospy.Rate(5)
         while not rospy.is_shutdown():
-            # prepare laser scan
-            scan.header.stamp = rospy.Time.now()    
-            #self.robot.requestScan()
-            scan.ranges = self.robot.getScanRanges()
-
-            # get motor encoder values
+            odom.header.stamp = rospy.Time.now()
+            # get motor velocity values
             vr, vl = self.robot.getMotors()
 
             # send updated movement commands
@@ -75,19 +62,18 @@ class HCRNode:
             
             
             # now update position information
-            dt = (scan.header.stamp - then).to_sec()
-            then = scan.header.stamp
-
+            dt = (odom.header.stamp - then).to_sec()
+            then = odom.header.stamp
+            
+            #odometry navigation
             omegaRight = vr/WHEELS_RAD
             omegaLeft  = vl/WHEELS_RAD
-            # фактическая линейная скорость центра робота
-            linear_velocity = (WHEELS_RAD/2)*(omegaRight + omegaLeft);#//m/s
-            # фактическая угловая скорость поворота робота
-            angular_velocity = (WHEELS_RAD/WHEELS_DIST)*(omegaRight - omegaLeft);
-            self.th+=(angular_velocity * dt)#;  #  // направление в рад
+            linear_velocity = (WHEELS_RAD/2)*(omegaRight + omegaLeft)
+            angular_velocity = (WHEELS_RAD/WHEELS_DIST)*(omegaRight - omegaLeft)
+            self.th+=(angular_velocity * dt)
             self.th = normalize_angle(self.th)
-            self.x += linear_velocity*cos(self.th) * dt# // в метрах
-            self.y += linear_velocity*sin(self.th) * dt#
+            self.x += linear_velocity*cos(self.th) * dt
+            self.y += linear_velocity*sin(self.th) * dt
 
             # prepare tf from base_link to odom
             quaternion = Quaternion()
@@ -95,7 +81,7 @@ class HCRNode:
             quaternion.w = cos(self.th/2.0)
 
             # prepare odometry
-            odom.header.stamp = rospy.Time.now()
+            #odom.header.stamp = rospy.Time.now()
             odom.pose.pose.position.x = self.x
             odom.pose.pose.position.y = self.y
             odom.pose.pose.position.z = 0
@@ -106,7 +92,6 @@ class HCRNode:
             # publish everything
             self.odomBroadcaster.sendTransform( (self.x, self.y, 0), (quaternion.x, quaternion.y, quaternion.z, quaternion.w),
                 then, "base_link", "odom" )
-            self.scanPub.publish(scan)
             self.odomPub.publish(odom)
 
             # wait, then do it again
@@ -117,9 +102,9 @@ class HCRNode:
 
     def cmdVelCb(self,req):
         vLinear = req.linear.x 
-        vAngular = req.angular.z * (WHEELS_DIST/2)
-        vr = ((2 * vLinear) + (WHEELS_DIST * vAngular)) / 2
-        vl = ((2 * vLinear) - (WHEELS_DIST * vAngular))/ 2
+        vAngular = req.angular.z
+        vr = ((2 * vLinear) + (WHEELS_DIST * vAngular))/2
+        vl = ((2 * vLinear) - (WHEELS_DIST * vAngular))/2
         k = max(abs(vr),abs(vl))
         # sending commands higher than max speed will fail
         if k > MAX_SPEED:
